@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LQ PixelCraft</title>
+<meta name="description" content="Remove backgrounds, crop, resize and upscale images, then save as PNG or JPEG. Everything runs in your browser.">
+<link rel="icon" type="image/png" href="lq-pixelcraft-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="lq-pixelcraft-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PixelCraft">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#5b4de0">
+<style>
+:root{
+  --bg:#f4f3fb; --card:#ffffff; --ink:#1d1b2e; --muted:#6b6880; --line:#e2e0f0;
+  --accent:#5b4de0; --accent-ink:#ffffff; --soft:#ebe8ff; --danger:#c0392b;
+  --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#14131f; --card:#1e1d2d; --ink:#f0eefb; --muted:#9d9ab5; --line:#33314a;
+         --accent:#8a7dff; --accent-ink:#12101f; --soft:#2b2848; --danger:#ff7b6b; }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) calc(24px + env(safe-area-inset-bottom)) env(safe-area-inset-left)}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;
+  position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
+h1{font-size:19px;margin:0;letter-spacing:-.2px}
+h1 span{color:var(--accent)}
+.hbtns{display:flex;gap:6px}
+button{font:inherit;color:inherit}
+.btn{min-height:44px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--card);
+  cursor:pointer;font-weight:600}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.small{min-height:36px;padding:0 12px;font-size:14px}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.btn.armed{background:var(--soft);border-color:var(--accent);color:var(--accent)}
+main{max-width:760px;margin:0 auto;padding:12px 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+#empty{text-align:center;padding:36px 18px;margin-top:10px;border:2px dashed var(--line);background:transparent}
+#empty.over{border-color:var(--accent);background:var(--soft)}
+#empty p{color:var(--muted);margin:10px 0 18px}
+#empty .big{font-size:44px;line-height:1}
+.stage{padding:12px;text-align:center;overflow:hidden}
+#wrap{position:relative;display:inline-block;line-height:0;border-radius:6px;overflow:hidden;
+  background-color:#fff;
+  background-image:linear-gradient(45deg,#cfcfd8 25%,transparent 25%,transparent 75%,#cfcfd8 75%),
+                   linear-gradient(45deg,#cfcfd8 25%,transparent 25%,transparent 75%,#cfcfd8 75%);
+  background-size:16px 16px;background-position:0 0,8px 8px}
+#wrap.bg-white{background-image:none;background-color:#fff}
+#wrap.bg-black{background-image:none;background-color:#000}
+#wrap.bg-green{background-image:none;background-color:#2ecc71}
+#view{display:block}
+#view.picking{cursor:crosshair}
+#cropLayer{position:absolute;inset:0;overflow:hidden;touch-action:none}
+#cbox{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move;touch-action:none;
+  outline:1px solid rgba(0,0,0,.4)}
+#cbox::before,#cbox::after{content:"";position:absolute;pointer-events:none;border:0 solid rgba(255,255,255,.45)}
+#cbox::before{left:33.33%;right:33.33%;top:0;bottom:0;border-left-width:1px;border-right-width:1px}
+#cbox::after{top:33.33%;bottom:33.33%;left:0;right:0;border-top-width:1px;border-bottom-width:1px}
+.h{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;touch-action:none;z-index:2}
+.h::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;
+  background:#fff;border:2px solid var(--accent);border-radius:50%}
+.h-nw{left:0;top:0;cursor:nwse-resize}.h-n{left:50%;top:0;cursor:ns-resize}.h-ne{left:100%;top:0;cursor:nesw-resize}
+.h-e{left:100%;top:50%;cursor:ew-resize}.h-se{left:100%;top:100%;cursor:nwse-resize}
+.h-s{left:50%;top:100%;cursor:ns-resize}.h-sw{left:0;top:100%;cursor:nesw-resize}.h-w{left:0;top:50%;cursor:ew-resize}
+.info{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;
+  color:var(--muted);font-size:13px;margin:8px 2px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);
+  font-size:14px;cursor:pointer}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--soft);padding:4px;border-radius:14px;margin:10px 0}
+.tab{min-height:44px;border:0;border-radius:10px;background:transparent;font-weight:600;font-size:14px;cursor:pointer;color:var(--muted)}
+.tab.on{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.panel h2{font-size:15px;margin:0 0 4px}
+.panel .sub{color:var(--muted);font-size:13px;margin:0 0 10px}
+.panel hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+.row{display:flex;align-items:center;gap:10px;margin:10px 0;flex-wrap:wrap}
+.row label{font-size:14px;min-width:92px}
+.row input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+.row .val{min-width:42px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;font-size:14px}
+input[type=number],input[type=text]{font:inherit;min-height:44px;padding:0 10px;border-radius:10px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink);width:100%}
+.dims{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
+.dims span{color:var(--muted)}
+.check{display:flex;align-items:center;gap:8px;font-size:14px}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.seg{display:inline-grid;grid-auto-flow:column;gap:4px;background:var(--soft);padding:4px;border-radius:12px}
+.seg label{min-width:0;position:relative}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:block;padding:9px 18px;border-radius:9px;font-weight:600;font-size:14px;cursor:pointer;color:var(--muted)}
+.seg input:checked+span{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.swatch{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);display:inline-block;vertical-align:middle}
+input[type=color]{width:46px;height:36px;border:1px solid var(--line);border-radius:8px;padding:2px;background:var(--bg)}
+.hint{color:var(--muted);font-size:13px;margin:8px 0 0}
+.warn{color:var(--danger)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.actions .btn{flex:1;min-width:130px}
+#busy{position:fixed;inset:0;background:rgba(10,8,25,.55);display:none;align-items:center;justify-content:center;z-index:50;padding:24px}
+#busy.on{display:flex}
+#busy .box{background:var(--card);padding:22px 24px;border-radius:16px;text-align:center;max-width:320px}
+.spin{width:34px;height:34px;border-radius:50%;border:4px solid var(--soft);border-top-color:var(--accent);
+  margin:0 auto 12px;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+#toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
+  background:#222;color:#fff;padding:11px 16px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;
+  transition:.25s;z-index:60;max-width:90vw;text-align:center}
+#toast.on{opacity:1;transform:translateX(-50%)}
+footer{max-width:760px;margin:6px auto 0;padding:0 16px;color:var(--muted);font-size:12px;text-align:center}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header>
+  <h1>LQ <span>PixelCraft</span></h1>
+  <div class="hbtns">
+    <button class="btn small" id="btnUndo" disabled>Undo</button>
+    <button class="btn small" id="btnReset" disabled>Reset</button>
+    <button class="btn small" id="btnNew" hidden>New</button>
+  </div>
+</header>
+
+<main>
+  <section id="empty" class="card">
+    <div class="big">🖼️</div>
+    <p>Remove the background, crop, resize or upscale, then save as PNG or JPEG.<br>Drop an image here, paste one, or choose a file.</p>
+    <button class="btn primary" id="btnOpen">Choose image</button>
+  </section>
+
+  <section id="editor" hidden>
+    <div class="card stage" id="stage">
+      <div id="wrap">
+        <canvas id="view"></canvas>
+        <div id="cropLayer" hidden><div id="cbox"></div></div>
+      </div>
+    </div>
+    <div class="info">
+      <span id="info"></span>
+      <div class="chips" id="bgChips" aria-label="Preview background">
+        <button class="chip on" data-bg="">Checker</button>
+        <button class="chip" data-bg="white">White</button>
+        <button class="chip" data-bg="black">Black</button>
+        <button class="chip" data-bg="green">Green</button>
+      </div>
+    </div>
+
+    <nav class="tabs">
+      <button class="tab on" data-tab="bg">Remove BG</button>
+      <button class="tab" data-tab="crop">Crop</button>
+      <button class="tab" data-tab="resize">Resize</button>
+      <button class="tab" data-tab="export">Save</button>
+    </nav>
+
+    <div class="card panel" id="p-bg">
+      <h2>Remove background</h2>
+      <p class="sub">Automatic cut-out of the main subject, or erase a solid color by tapping it.</p>
+      <button class="btn primary" id="btnAI" style="width:100%">Remove background automatically</button>
+      <p class="hint">First use downloads an AI model (about 40–80 MB), then it is cached. Your image never leaves your device. Images larger than 3000 px are processed at 3000 px.</p>
+      <hr>
+      <h2>Color eraser</h2>
+      <p class="sub">Best for plain backgrounds. Turn it on, then tap the background color.</p>
+      <div class="row"><label for="tol">Tolerance</label><input type="range" id="tol" min="1" max="100" value="30"><span class="val" id="tolV">30</span></div>
+      <div class="row"><label for="soft">Soft edge</label><input type="range" id="soft" min="0" max="100" value="20"><span class="val" id="softV">20</span></div>
+      <div class="row"><label class="check"><input type="checkbox" id="contig" checked> Only connected area</label></div>
+      <div class="row"><button class="btn small" id="btnPick">Color eraser: off</button><span class="swatch" id="swatch" hidden></span></div>
+    </div>
+
+    <div class="card panel" id="p-crop" hidden>
+      <h2>Crop</h2>
+      <p class="sub">Drag the box or its handles.</p>
+      <div class="chips" id="ratioChips">
+        <button class="chip on" data-r="0">Free</button>
+        <button class="chip" data-r="1">1:1</button>
+        <button class="chip" data-r="1.3333333">4:3</button>
+        <button class="chip" data-r="0.75">3:4</button>
+        <button class="chip" data-r="1.7777778">16:9</button>
+        <button class="chip" data-r="0.5625">9:16</button>
+      </div>
+      <p class="hint" id="cropInfo"></p>
+      <div class="actions"><button class="btn primary" id="btnCrop">Apply crop</button></div>
+    </div>
+
+    <div class="card panel" id="p-resize" hidden>
+      <h2>Resize &amp; upscale</h2>
+      <p class="sub">Enlarge or shrink. Upscaling uses smooth multi-step scaling plus optional sharpening.</p>
+      <div class="chips" id="scaleChips">
+        <button class="chip" data-s="0.5">½×</button>
+        <button class="chip" data-s="1">1×</button>
+        <button class="chip" data-s="2">2×</button>
+        <button class="chip" data-s="3">3×</button>
+        <button class="chip" data-s="4">4×</button>
+      </div>
+      <div class="row dims" style="margin-top:12px">
+        <input type="number" id="wIn" inputmode="numeric" min="1" aria-label="Width">
+        <span>×</span>
+        <input type="number" id="hIn" inputmode="numeric" min="1" aria-label="Height">
+      </div>
+      <div class="row"><label class="check"><input type="checkbox" id="lock" checked> Keep proportions</label></div>
+      <div class="row"><label for="sharp">Sharpen</label><input type="range" id="sharp" min="0" max="100" value="30"><span class="val" id="sharpV">30</span></div>
+      <p class="hint" id="rsInfo"></p>
+      <div class="actions"><button class="btn primary" id="btnResize">Apply size</button></div>
+    </div>
+
+    <div class="card panel" id="p-export" hidden>
+      <h2>Save</h2>
+      <div class="row">
+        <div class="seg" role="radiogroup" aria-label="Format">
+          <label><input type="radio" name="fmt" value="png" checked><span>PNG</span></label>
+          <label><input type="radio" name="fmt" value="jpeg"><span>JPEG</span></label>
+        </div>
+      </div>
+      <p class="hint" id="fmtHint">PNG keeps transparency. Best after removing a background.</p>
+      <div id="jpgOpts" hidden>
+        <div class="row"><label for="qual">Quality</label><input type="range" id="qual" min="40" max="100" value="92"><span class="val" id="qualV">92</span></div>
+        <div class="row"><label for="jbg">Background</label><input type="color" id="jbg" value="#ffffff"><span class="hint" style="margin:0">JPEG has no transparency, so transparent areas are filled with this color.</span></div>
+      </div>
+      <div class="row"><label for="fname">File name</label><input type="text" id="fname" autocapitalize="off" autocomplete="off" spellcheck="false"></div>
+      <div class="actions">
+        <button class="btn primary" id="btnDownload">Download</button>
+        <button class="btn" id="btnShare" hidden>Share / Save to Photos</button>
+      </div>
+      <p class="hint" id="exInfo"></p>
+    </div>
+  </section>
+</main>
+<footer>Runs in your browser. Nothing is uploaded.</footer>
+
+<input type="file" id="file" accept="image/*" hidden>
+<div id="busy"><div class="box"><div class="spin"></div><div id="busyMsg">Working…</div></div></div>
+<div id="toast"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const MAX_PIXELS = 16000000;   // iOS Safari canvas area limit is about 16.7 MP
+const MAX_SIDE = 12000;
+const MAX_AI = 3000;
+
+let cur = null, orig = null, history = [];
+let baseName = 'image', tab = 'bg';
+let crop = {x:0, y:0, w:0, h:0}, ratio = 0;
+let picking = false;
+
+/* ---------- helpers ---------- */
+const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+const tick = () => new Promise(r => setTimeout(r, 40));
+const makeCanvas = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const cloneCanvas = c => { const n = makeCanvas(c.width, c.height); n.getContext('2d').drawImage(c, 0, 0); return n; };
+const limitDims = (w, h) => {
+  const s = Math.min(1, Math.sqrt(MAX_PIXELS / (w * h)), MAX_SIDE / Math.max(w, h));
+  return s < 1 ? [Math.max(1, Math.floor(w * s)), Math.max(1, Math.floor(h * s))] : [w, h];
+};
+const toBlob = (c, type, q) => new Promise((res, rej) =>
+  c.toBlob(b => b ? res(b) : rej(new Error('Could not create the image file')), type, q));
+const mp = (w, h) => (w * h / 1e6).toFixed(1) + ' MP';
+
+let toastTimer;
+function toast(msg, ms = 2800) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms);
+}
+function busy(msg) { $('#busyMsg').textContent = msg || 'Working…'; $('#busy').classList.add('on'); }
+function setBusy(msg) { $('#busyMsg').textContent = msg; }
+function unbusy() { $('#busy').classList.remove('on'); }
+async function run(msg, fn) {
+  busy(msg); await tick();
+  try { return await fn(); }
+  catch (e) { console.error(e); toast('Something went wrong: ' + (e.message || e), 4500); }
+  finally { unbusy(); }
+}
+
+/* ---------- loading ---------- */
+async function bitmapFrom(file) {
+  try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) {
+    return await new Promise((res, rej) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Unsupported image')); };
+      img.src = url;
+    });
+  }
+}
+async function loadFile(file) {
+  if (!file) return;
+  await run('Opening image…', async () => {
+    const bmp = await bitmapFrom(file);
+    const w0 = bmp.width || bmp.naturalWidth, h0 = bmp.height || bmp.naturalHeight;
+    const [w, h] = limitDims(w0, h0);
+    const c = makeCanvas(w, h);
+    c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    orig = c; cur = cloneCanvas(c); history = [];
+    baseName = (file.name || 'image').replace(/\.[^.]+$/, '') || 'image';
+    $('#fname').value = baseName + '-pixelcraft';
+    $('#empty').hidden = true; $('#editor').hidden = false; $('#btnNew').hidden = false;
+    setTab('bg');
+    render();
+    if (w < w0) toast('Large image scaled down to fit browser limits.');
+  });
+}
+
+/* ---------- state / render ---------- */
+function commit(c) {
+  history.push(cur);
+  if (history.length > 8) history.shift();
+  cur = c;
+  render();
+}
+function refreshButtons() {
+  $('#btnUndo').disabled = history.length === 0;
+  $('#btnReset').disabled = !orig || (history.length === 0);
+}
+function fitView() {
+  if (!cur || $('#editor').hidden) return;
+  const stage = $('#stage');
+  const availW = Math.max(100, stage.clientWidth - 24);
+  const availH = Math.max(220, Math.min(window.innerHeight * 0.5, 520));
+  const s = Math.min(availW / cur.width, availH / cur.height, 2);
+  const v = $('#view');
+  v.style.width = Math.max(1, Math.round(cur.width * s)) + 'px';
+  v.style.height = Math.max(1, Math.round(cur.height * s)) + 'px';
+}
+function render() {
+  const v = $('#view');
+  v.width = cur.width; v.height = cur.height;
+  v.getContext('2d').drawImage(cur, 0, 0);
+  fitView();
+  $('#info').textContent = cur.width + ' × ' + cur.height + ' px · ' + mp(cur.width, cur.height);
+  crop = { x: 0, y: 0, w: cur.width, h: cur.height };
+  if (ratio) fitRatio(true);
+  updateCropUI();
+  $('#wIn').value = cur.width; $('#hIn').value = cur.height;
+  updateResizeInfo();
+  updateExportInfo();
+  refreshButtons();
+}
+
+/* ---------- tabs ---------- */
+function setTab(t) {
+  tab = t;
+  $$('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  ['bg', 'crop', 'resize', 'export'].forEach(n => $('#p-' + n).hidden = (n !== t));
+  $('#cropLayer').hidden = (t !== 'crop');
+  if (t !== 'bg') setPicking(false);
+  if (t === 'export') updateExportInfo();
+}
+$$('.tab').forEach(b => b.addEventListener('click', () => cur && setTab(b.dataset.tab)));
+
+/* preview background */
+$$('#bgChips .chip').forEach(b => b.addEventListener('click', () => {
+  $$('#bgChips .chip').forEach(x => x.classList.toggle('on', x === b));
+  const w = $('#wrap'); w.className = b.dataset.bg ? 'bg-' + b.dataset.bg : '';
+}));
+
+/* ---------- undo / reset / new ---------- */
+$('#btnUndo').addEventListener('click', () => { if (history.length) { cur = history.pop(); render(); } });
+$('#btnReset').addEventListener('click', () => {
+  if (!orig) return;
+  history.push(cur); if (history.length > 8) history.shift();
+  cur = cloneCanvas(orig); render(); toast('Back to the original image.');
+});
+$('#btnNew').addEventListener('click', () => $('#file').click());
+$('#btnOpen').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; loadFile(f); });
+
+/* drag & drop, paste */
+const empty = $('#empty');
+['dragenter', 'dragover'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); empty.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); empty.classList.remove('over'); }));
+document.addEventListener('drop', e => {
+  const f = [...(e.dataTransfer?.files || [])].find(f => f.type.startsWith('image/'));
+  if (f) loadFile(f);
+});
+document.addEventListener('paste', e => {
+  const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
+  if (it) loadFile(it.getAsFile());
+});
+window.addEventListener('resize', fitView);
+window.addEventListener('orientationchange', () => setTimeout(fitView, 200));
+
+/* ---------- remove background: AI ---------- */
+let bgLib = null;
+$('#btnAI').addEventListener('click', async () => {
+  if (!cur) return;
+  busy('Loading background remover…');
+  try {
+    if (!bgLib) {
+      bgLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm');
+    }
+    let src = cur;
+    const big = Math.max(cur.width, cur.height);
+    if (big > MAX_AI) {
+      const s = MAX_AI / big;
+      src = makeCanvas(Math.round(cur.width * s), Math.round(cur.height * s));
+      src.getContext('2d').drawImage(cur, 0, 0, src.width, src.height);
+    }
+    const blob = await toBlob(src, 'image/png');
+    setBusy('Preparing…');
+    const out = await bgLib.removeBackground(blob, {
+      output: { format: 'image/png' },
+      progress: (key, c, t) => {
+        if (String(key).startsWith('fetch') && t) setBusy('Downloading model… ' + Math.round(c / t * 100) + '%');
+        else setBusy('Removing background…');
+      }
+    });
+    const bmp = await createImageBitmap(out);
+    const c = makeCanvas(bmp.width, bmp.height);
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    if (bmp.close) bmp.close();
+    commit(c);
+    toast('Background removed. Use the preview colors to check the edges.');
+  } catch (e) {
+    console.error(e);
+    toast('Automatic removal needs an internet connection the first time. Try again, or use the color eraser.', 5500);
+  } finally { unbusy(); }
+});
+
+/* ---------- remove background: color eraser ---------- */
+function setPicking(on) {
+  picking = on;
+  $('#btnPick').textContent = 'Color eraser: ' + (on ? 'on — tap the image' : 'off');
+  $('#btnPick').classList.toggle('armed', on);
+  $('#view').classList.toggle('picking', on);
+}
+$('#btnPick').addEventListener('click', () => setPicking(!picking));
+$('#tol').addEventListener('input', e => $('#tolV').textContent = e.target.value);
+$('#soft').addEventListener('input', e => $('#softV').textContent = e.target.value);
+
+$('#view').addEventListener('click', e => {
+  if (!picking || !cur || tab !== 'bg') return;
+  const r = e.currentTarget.getBoundingClientRect();
+  const x = clamp(Math.floor((e.clientX - r.left) * cur.width / r.width), 0, cur.width - 1);
+  const y = clamp(Math.floor((e.clientY - r.top) * cur.height / r.height), 0, cur.height - 1);
+  run('Erasing color…', () => colorErase(x, y));
+});
+
+function colorErase(px, py) {
+  const W = cur.width, H = cur.height;
+  const next = cloneCanvas(cur);
+  const ctx = next.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, W, H), d = img.data;
+  const i0 = (py * W + px) * 4;
+  const r0 = d[i0], g0 = d[i0 + 1], b0 = d[i0 + 2];
+  const sw = $('#swatch'); sw.hidden = false; sw.style.background = `rgb(${r0},${g0},${b0})`;
+  const tolD = +$('#tol').value * 2.5;
+  const softD = +$('#soft').value * 1.5;
+  const limit = tolD + softD;
+  const dist = i => { const a = d[i] - r0, b = d[i + 1] - g0, c = d[i + 2] - b0; return Math.sqrt(a * a + b * b + c * c); };
+  const apply = (i, dd) => {
+    if (dd <= tolD || softD === 0) d[i + 3] = 0;
+    else d[i + 3] = Math.round(d[i + 3] * (dd - tolD) / softD);
+  };
+  if ($('#contig').checked) {
+    const seen = new Uint8Array(W * H);
+    const stack = new Int32Array(W * H);
+    let sp = 0, removed = 0;
+    stack[sp++] = py * W + px; seen[py * W + px] = 1;
+    const dists = new Map();
+    while (sp) {
+      const p = stack[--sp], i = p * 4;
+      const transparent = d[i + 3] === 0;
+      const dd = dist(i);
+      if (!transparent && dd > limit) continue;
+      if (!transparent) { dists.set(p, dd); removed++; }
+      const x = p % W, y = (p - x) / W;
+      if (x > 0 && !seen[p - 1]) { seen[p - 1] = 1; stack[sp++] = p - 1; }
+      if (x < W - 1 && !seen[p + 1]) { seen[p + 1] = 1; stack[sp++] = p + 1; }
+      if (y > 0 && !seen[p - W]) { seen[p - W] = 1; stack[sp++] = p - W; }
+      if (y < H - 1 && !seen[p + W]) { seen[p + W] = 1; stack[sp++] = p + W; }
+    }
+    dists.forEach((dd, p) => apply(p * 4, dd));
+    if (!removed) { toast('Nothing matched. Try a higher tolerance.'); return; }
+  } else {
+    let removed = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) continue;
+      const dd = dist(i);
+      if (dd <= limit) { apply(i, dd); removed++; }
+    }
+    if (!removed) { toast('Nothing matched. Try a higher tolerance.'); return; }
+  }
+  ctx.putImageData(img, 0, 0);
+  commit(next);
+}
+
+/* ---------- crop ---------- */
+const cbox = $('#cbox');
+['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'].forEach(h => {
+  const d = document.createElement('div'); d.className = 'h h-' + h; d.dataset.h = h; cbox.appendChild(d);
+});
+function updateCropUI() {
+  if (!cur) return;
+  cbox.style.left = (crop.x / cur.width * 100) + '%';
+  cbox.style.top = (crop.y / cur.height * 100) + '%';
+  cbox.style.width = (crop.w / cur.width * 100) + '%';
+  cbox.style.height = (crop.h / cur.height * 100) + '%';
+  $('#cropInfo').textContent = 'Selection: ' + Math.round(crop.w) + ' × ' + Math.round(crop.h) + ' px';
+}
+function fitRatio(fromFull) {
+  const W = cur.width, H = cur.height;
+  if (fromFull) crop = { x: 0, y: 0, w: W, h: H };
+  let w = crop.w, h = w / ratio;
+  if (h > crop.h) { h = crop.h; w = h * ratio; }
+  const cx = crop.x + crop.w / 2, cy = crop.y + crop.h / 2;
+  crop = { x: clamp(cx - w / 2, 0, W - w), y: clamp(cy - h / 2, 0, H - h), w, h };
+}
+$$('#ratioChips .chip').forEach(b => b.addEventListener('click', () => {
+  $$('#ratioChips .chip').forEach(x => x.classList.toggle('on', x === b));
+  ratio = parseFloat(b.dataset.r);
+  if (ratio) fitRatio(true); else crop = { x: 0, y: 0, w: cur.width, h: cur.height };
+  updateCropUI();
+}));
+function dragCrop(h, r0, dx, dy) {
+  const W = cur.width, H = cur.height, MIN = Math.min(24, W, H);
+  if (h === 'move') {
+    crop = { x: clamp(r0.x + dx, 0, W - r0.w), y: clamp(r0.y + dy, 0, H - r0.h), w: r0.w, h: r0.h };
+    return updateCropUI();
+  }
+  let l = r0.x, t = r0.y, r = r0.x + r0.w, b = r0.y + r0.h;
+  if (h.includes('w')) l = clamp(l + dx, 0, r - MIN);
+  if (h.includes('e')) r = clamp(r + dx, l + MIN, W);
+  if (h.includes('n')) t = clamp(t + dy, 0, b - MIN);
+  if (h.includes('s')) b = clamp(b + dy, t + MIN, H);
+  if (ratio) {
+    let w = r - l, hh = b - t;
+    if (h === 'n' || h === 's') { w = hh * ratio; l = r0.x + r0.w / 2 - w / 2; r = l + w; }
+    else if (h === 'e' || h === 'w') { hh = w / ratio; t = r0.y + r0.h / 2 - hh / 2; b = t + hh; }
+    else { hh = w / ratio; if (h.includes('n')) t = b - hh; else b = t + hh; }
+    if (l < 0 || t < 0 || r > W || b > H || r - l < MIN || b - t < MIN) return;
+  }
+  crop = { x: l, y: t, w: r - l, h: b - t };
+  updateCropUI();
+}
+let drag = null;
+cbox.addEventListener('pointerdown', e => {
+  const h = e.target.dataset.h || 'move';
+  drag = { h, sx: e.clientX, sy: e.clientY, r0: { ...crop }, k: cur.width / $('#view').getBoundingClientRect().width };
+  cbox.setPointerCapture(e.pointerId); e.preventDefault();
+});
+cbox.addEventListener('pointermove', e => {
+  if (!drag) return;
+  dragCrop(drag.h, drag.r0, (e.clientX - drag.sx) * drag.k, (e.clientY - drag.sy) * drag.k);
+});
+['pointerup', 'pointercancel'].forEach(ev => cbox.addEventListener(ev, () => drag = null));
+
+$('#btnCrop').addEventListener('click', () => {
+  const x = Math.round(crop.x), y = Math.round(crop.y);
+  const w = Math.max(1, Math.min(Math.round(crop.w), cur.width - x));
+  const h = Math.max(1, Math.min(Math.round(crop.h), cur.height - y));
+  if (w === cur.width && h === cur.height) { toast('Select an area first.'); return; }
+  const c = makeCanvas(w, h);
+  c.getContext('2d').drawImage(cur, x, y, w, h, 0, 0, w, h);
+  commit(c);
+  toast('Cropped to ' + w + ' × ' + h + ' px.');
+});
+
+/* ---------- resize / upscale ---------- */
+const wIn = $('#wIn'), hIn = $('#hIn');
+function updateResizeInfo() {
+  if (!cur) return;
+  const w = Math.max(1, parseInt(wIn.value) || 1), h = Math.max(1, parseInt(hIn.value) || 1);
+  const [lw, lh] = limitDims(w, h);
+  const info = $('#rsInfo');
+  if (lw < w) {
+    info.className = 'hint warn';
+    info.textContent = 'Too large for the browser. It will be limited to ' + lw + ' × ' + lh + ' px (' + mp(lw, lh) + ').';
+  } else {
+    info.className = 'hint';
+    const f = w / cur.width;
+    info.textContent = 'Result: ' + w + ' × ' + h + ' px (' + mp(w, h) + ') · ' + (f >= 1 ? f.toFixed(2) + '× larger' : (1 / f).toFixed(2) + '× smaller');
+  }
+  $$('#scaleChips .chip').forEach(c => c.classList.toggle('on', Math.abs(w / cur.width - parseFloat(c.dataset.s)) < 0.005 && Math.abs(h / cur.height - parseFloat(c.dataset.s)) < 0.01));
+}
+wIn.addEventListener('input', () => { if ($('#lock').checked && cur) hIn.value = Math.max(1, Math.round((parseInt(wIn.value) || 1) * cur.height / cur.width)); updateResizeInfo(); });
+hIn.addEventListener('input', () => { if ($('#lock').checked && cur) wIn.value = Math.max(1, Math.round((parseInt(hIn.value) || 1) * cur.width / cur.height)); updateResizeInfo(); });
+$('#lock').addEventListener('change', () => { if ($('#lock').checked && cur) { hIn.value = Math.round((parseInt(wIn.value) || 1) * cur.height / cur.width); updateResizeInfo(); } });
+$$('#scaleChips .chip').forEach(b => b.addEventListener('click', () => {
+  const s = parseFloat(b.dataset.s);
+  wIn.value = Math.max(1, Math.round(cur.width * s));
+  hIn.value = Math.max(1, Math.round(cur.height * s));
+  updateResizeInfo();
+}));
+$('#sharp').addEventListener('input', e => $('#sharpV').textContent = e.target.value);
+
+function stepDim(c, t) { return t > c ? Math.min(t, c * 2) : Math.max(t, Math.ceil(c / 2)); }
+function resizeTo(src, nw, nh) {
+  let c = src, w = src.width, h = src.height;
+  while (w !== nw || h !== nh) {
+    const sw = stepDim(w, nw), sh = stepDim(h, nh);
+    const t = makeCanvas(sw, sh), x = t.getContext('2d');
+    x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+    x.drawImage(c, 0, 0, sw, sh);
+    c = t; w = sw; h = sh;
+  }
+  return c;
+}
+function sharpen(c, amount) {
+  const W = c.width, H = c.height;
+  if (W < 3 || H < 3) return c;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, W, H), s = img.data, o = new Uint8ClampedArray(s);
+  const k = amount / 100 * 1.5;
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = (y * W + x) * 4;
+      if (s[i + 3] === 0) continue;
+      let sr = 0, sg = 0, sb = 0, sa = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const j = i + (dy * W + dx) * 4, a = s[j + 3];
+          sr += s[j] * a; sg += s[j + 1] * a; sb += s[j + 2] * a; sa += a;
+        }
+      }
+      if (!sa) continue;
+      o[i] = s[i] + k * (s[i] - sr / sa);
+      o[i + 1] = s[i + 1] + k * (s[i + 1] - sg / sa);
+      o[i + 2] = s[i + 2] + k * (s[i + 2] - sb / sa);
+    }
+  }
+  img.data.set(o);
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+$('#btnResize').addEventListener('click', () => {
+  let nw = Math.max(1, parseInt(wIn.value) || 1), nh = Math.max(1, parseInt(hIn.value) || 1);
+  [nw, nh] = limitDims(nw, nh);
+  if (nw === cur.width && nh === cur.height) { toast('Choose a different size first.'); return; }
+  const amt = +$('#sharp').value;
+  run('Resizing…', async () => {
+    let c = resizeTo(cur, nw, nh);
+    if (amt > 0) { await tick(); setBusy('Sharpening…'); await tick(); c = sharpen(c, amt); }
+    commit(c);
+    toast('Now ' + nw + ' × ' + nh + ' px.');
+  });
+});
+
+/* ---------- export ---------- */
+const isJpeg = () => document.querySelector('input[name=fmt]:checked').value === 'jpeg';
+function updateExportInfo() {
+  if (!cur) return;
+  const j = isJpeg();
+  $('#jpgOpts').hidden = !j;
+  $('#fmtHint').textContent = j
+    ? 'JPEG makes smaller files but cannot keep transparency.'
+    : 'PNG keeps transparency. Best after removing a background.';
+  $('#exInfo').textContent = 'Output: ' + cur.width + ' × ' + cur.height + ' px · ' + (j ? 'JPEG' : 'PNG');
+}
+$$('input[name=fmt]').forEach(r => r.addEventListener('change', updateExportInfo));
+$('#qual').addEventListener('input', e => $('#qualV').textContent = e.target.value);
+
+function fileName() {
+  let n = ($('#fname').value || baseName).trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\.(png|jpe?g)$/i, '');
+  return (n || 'image') + (isJpeg() ? '.jpg' : '.png');
+}
+async function buildBlob() {
+  if (isJpeg()) {
+    const t = makeCanvas(cur.width, cur.height), x = t.getContext('2d');
+    x.fillStyle = $('#jbg').value; x.fillRect(0, 0, t.width, t.height);
+    x.drawImage(cur, 0, 0);
+    return toBlob(t, 'image/jpeg', +$('#qual').value / 100);
+  }
+  return toBlob(cur, 'image/png');
+}
+const fmtSize = b => b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB';
+
+$('#btnDownload').addEventListener('click', () => run('Preparing file…', async () => {
+  const blob = await buildBlob(), name = fileName();
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  $('#exInfo').textContent = name + ' · ' + fmtSize(blob.size);
+}));
+
+if (navigator.canShare && navigator.share) $('#btnShare').hidden = false;
+$('#btnShare').addEventListener('click', () => run('Preparing file…', async () => {
+  const blob = await buildBlob(), name = fileName();
+  const file = new File([blob], name, { type: blob.type });
+  $('#exInfo').textContent = name + ' · ' + fmtSize(blob.size);
+  if (navigator.canShare({ files: [file] })) {
+    unbusy();
+    try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') throw e; }
+  } else {
+    toast('Sharing is not supported here. Use Download.');
+  }
+}));
+})();
+</script>
+</body>
+</html>
