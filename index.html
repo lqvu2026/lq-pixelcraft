@@ -45,8 +45,8 @@ main{max-width:760px;margin:0 auto;padding:12px 14px}
 #empty.over{border-color:var(--accent);background:var(--soft)}
 #empty p{color:var(--muted);margin:10px 0 18px}
 #empty .big{font-size:44px;line-height:1}
-.stage{padding:12px;text-align:center;overflow:hidden}
-#wrap{position:relative;display:inline-block;line-height:0;border-radius:6px;overflow:hidden;
+.stage{padding:12px;overflow:auto;-webkit-overflow-scrolling:touch}
+#wrap{position:relative;display:block;width:max-content;margin:0 auto;line-height:0;border-radius:6px;overflow:hidden;
   background-color:#fff;
   background-image:linear-gradient(45deg,#cfcfd8 25%,transparent 25%,transparent 75%,#cfcfd8 75%),
                    linear-gradient(45deg,#cfcfd8 25%,transparent 25%,transparent 75%,#cfcfd8 75%);
@@ -56,6 +56,7 @@ main{max-width:760px;margin:0 auto;padding:12px 14px}
 #wrap.bg-green{background-image:none;background-color:#2ecc71}
 #view{display:block}
 #view.picking{cursor:crosshair}
+#ring{position:fixed;pointer-events:none;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1.5px rgba(0,0,0,.7);z-index:40;display:none}
 #cropLayer{position:absolute;inset:0;overflow:hidden;touch-action:none}
 #cbox{position:absolute;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move;touch-action:none;
   outline:1px solid rgba(0,0,0,.4)}
@@ -149,6 +150,15 @@ footer{max-width:760px;margin:6px auto 0;padding:0 16px;color:var(--muted);font-
       </div>
     </div>
 
+    <div class="row" style="margin:0 2px 6px"><span style="font-size:13px;color:var(--muted)">Zoom</span>
+      <div class="chips" id="zoomChips">
+        <button class="chip on" data-z="1">Fit</button>
+        <button class="chip" data-z="2">2×</button>
+        <button class="chip" data-z="3">3×</button>
+        <button class="chip" data-z="4">4×</button>
+      </div>
+    </div>
+
     <nav class="tabs">
       <button class="tab on" data-tab="bg">Remove BG</button>
       <button class="tab" data-tab="crop">Crop</button>
@@ -168,6 +178,22 @@ footer{max-width:760px;margin:6px auto 0;padding:0 16px;color:var(--muted);font-
       <div class="row"><label for="soft">Soft edge</label><input type="range" id="soft" min="0" max="100" value="20"><span class="val" id="softV">20</span></div>
       <div class="row"><label class="check"><input type="checkbox" id="contig" checked> Only connected area</label></div>
       <div class="row"><button class="btn small" id="btnPick">Color eraser: off</button><span class="swatch" id="swatch" hidden></span></div>
+      <hr>
+      <h2>Touch-up brush</h2>
+      <p class="sub">Clean up edges by hand. Erase removes pixels; Restore brings the original back. Zoom in for precision, and switch to Move to scroll the image.</p>
+      <div class="row">
+        <div class="seg" role="radiogroup" aria-label="Brush type">
+          <label><input type="radio" name="bkind" value="erase" checked><span>Erase</span></label>
+          <label><input type="radio" name="bkind" value="restore"><span>Restore</span></label>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Touch action">
+          <label><input type="radio" name="bmode" value="paint" checked><span>Paint</span></label>
+          <label><input type="radio" name="bmode" value="move"><span>Move</span></label>
+        </div>
+      </div>
+      <div class="row"><label for="bsize">Size</label><input type="range" id="bsize" min="6" max="120" value="28"><span class="val" id="bsizeV">28</span></div>
+      <div class="row"><label for="bsoft">Softness</label><input type="range" id="bsoft" min="0" max="100" value="35"><span class="val" id="bsoftV">35</span></div>
+      <div class="row"><button class="btn small" id="btnBrush">Brush: off</button></div>
     </div>
 
     <div class="card panel" id="p-crop" hidden>
@@ -232,6 +258,7 @@ footer{max-width:760px;margin:6px auto 0;padding:0 16px;color:var(--muted);font-
 
 <input type="file" id="file" accept="image/*" hidden>
 <div id="busy"><div class="box"><div class="spin"></div><div id="busyMsg">Working…</div><button class="btn small" id="busyCancel" hidden style="margin-top:14px">Cancel</button></div></div>
+<div id="ring"></div>
 <div id="toast"></div>
 
 <script>
@@ -247,6 +274,8 @@ let cur = null, orig = null, history = [];
 let baseName = 'image', tab = 'bg';
 let crop = {x:0, y:0, w:0, h:0}, ratio = 0;
 let picking = false;
+let restoreSrc = null, zoom = 1;
+let brushOn = false, stroke = null;
 
 /* ---------- helpers ---------- */
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
@@ -297,7 +326,8 @@ async function loadFile(file) {
     const c = makeCanvas(w, h);
     c.getContext('2d').drawImage(bmp, 0, 0, w, h);
     if (bmp.close) bmp.close();
-    orig = c; cur = cloneCanvas(c); history = [];
+    orig = c; cur = cloneCanvas(c); restoreSrc = orig; history = []; zoom = 1;
+    $$('#zoomChips .chip').forEach(x => x.classList.toggle('on', x.dataset.z === '1'));
     baseName = (file.name || 'image').replace(/\.[^.]+$/, '') || 'image';
     $('#fname').value = baseName + '-pixelcraft';
     $('#empty').hidden = true; $('#editor').hidden = false; $('#btnNew').hidden = false;
@@ -308,10 +338,15 @@ async function loadFile(file) {
 }
 
 /* ---------- state / render ---------- */
-function commit(c) {
-  history.push(cur);
-  if (history.length > 8) history.shift();
+function pushHistory(c) {
+  history.push({ c, r: restoreSrc });
+  const cap = clamp(Math.floor(160e6 / (c.width * c.height * 4)), 6, 30);
+  while (history.length > cap) history.shift();
+}
+function commit(c, r) {
+  pushHistory(cur);
   cur = c;
+  if (r) restoreSrc = r;
   render();
 }
 function refreshButtons() {
@@ -325,8 +360,9 @@ function fitView() {
   const availH = Math.max(220, Math.min(window.innerHeight * 0.5, 520));
   const s = Math.min(availW / cur.width, availH / cur.height, 2);
   const v = $('#view');
-  v.style.width = Math.max(1, Math.round(cur.width * s)) + 'px';
-  v.style.height = Math.max(1, Math.round(cur.height * s)) + 'px';
+  v.style.width = Math.max(1, Math.round(cur.width * s * zoom)) + 'px';
+  v.style.height = Math.max(1, Math.round(cur.height * s * zoom)) + 'px';
+  stage.style.maxHeight = zoom > 1 ? '70vh' : '';
 }
 function render() {
   const v = $('#view');
@@ -349,7 +385,7 @@ function setTab(t) {
   $$('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   ['bg', 'crop', 'resize', 'export'].forEach(n => $('#p-' + n).hidden = (n !== t));
   $('#cropLayer').hidden = (t !== 'crop');
-  if (t !== 'bg') setPicking(false);
+  if (t !== 'bg') { setPicking(false); brushOn = false; updateBrushUI(); }
   if (t === 'export') updateExportInfo();
 }
 $$('.tab').forEach(b => b.addEventListener('click', () => cur && setTab(b.dataset.tab)));
@@ -361,11 +397,11 @@ $$('#bgChips .chip').forEach(b => b.addEventListener('click', () => {
 }));
 
 /* ---------- undo / reset / new ---------- */
-$('#btnUndo').addEventListener('click', () => { if (history.length) { cur = history.pop(); render(); } });
+$('#btnUndo').addEventListener('click', () => { if (history.length) { const h = history.pop(); cur = h.c; restoreSrc = h.r; render(); } });
 $('#btnReset').addEventListener('click', () => {
   if (!orig) return;
-  history.push(cur); if (history.length > 8) history.shift();
-  cur = cloneCanvas(orig); render(); toast('Back to the original image.');
+  pushHistory(cur);
+  cur = cloneCanvas(orig); restoreSrc = orig; render(); toast('Back to the original image.');
 });
 $('#btnNew').addEventListener('click', () => $('#file').click());
 $('#btnOpen').addEventListener('click', () => $('#file').click());
@@ -434,7 +470,7 @@ $('#btnAI').addEventListener('click', async () => {
     const c = makeCanvas(bmp.width, bmp.height);
     c.getContext('2d').drawImage(bmp, 0, 0);
     if (bmp.close) bmp.close();
-    commit(c);
+    commit(c, (c.width === cur.width && c.height === cur.height) ? null : resizeTo(restoreSrc, c.width, c.height));
     toast('Background removed. Use the preview colors to check the edges.');
   } catch (e) {
     console.error(e);
@@ -451,7 +487,8 @@ function setPicking(on) {
   picking = on;
   $('#btnPick').textContent = 'Color eraser: ' + (on ? 'on — tap the image' : 'off');
   $('#btnPick').classList.toggle('armed', on);
-  $('#view').classList.toggle('picking', on);
+  if (on) brushOn = false;
+  updateBrushUI();
 }
 $('#btnPick').addEventListener('click', () => setPicking(!picking));
 $('#tol').addEventListener('input', e => $('#tolV').textContent = e.target.value);
@@ -513,6 +550,109 @@ function colorErase(px, py) {
   ctx.putImageData(img, 0, 0);
   commit(next);
 }
+
+
+/* ---------- touch-up brush ---------- */
+function brushMode() { return document.querySelector('input[name=bmode]:checked').value; }
+function brushKind() { return document.querySelector('input[name=bkind]:checked').value; }
+function updateBrushUI() {
+  const paint = brushOn && brushMode() === 'paint';
+  $('#btnBrush').textContent = 'Brush: ' + (brushOn ? (paint ? 'on — paint on the image' : 'on — move mode') : 'off');
+  $('#btnBrush').classList.toggle('armed', brushOn);
+  const v = $('#view');
+  v.classList.toggle('picking', picking || paint);
+  v.style.touchAction = paint ? 'none' : '';
+  if (!paint) $('#ring').style.display = 'none';
+}
+$('#btnBrush').addEventListener('click', () => {
+  brushOn = !brushOn;
+  if (brushOn) setPicking(false);
+  updateBrushUI();
+});
+$$('input[name=bmode]').forEach(r => r.addEventListener('change', updateBrushUI));
+$('#bsize').addEventListener('input', e => $('#bsizeV').textContent = e.target.value);
+$('#bsoft').addEventListener('input', e => $('#bsoftV').textContent = e.target.value);
+$$('#zoomChips .chip').forEach(b => b.addEventListener('click', () => {
+  zoom = parseInt(b.dataset.z);
+  $$('#zoomChips .chip').forEach(x => x.classList.toggle('on', x === b));
+  fitView();
+}));
+
+const scratch = document.createElement('canvas');
+function stamp(ctx, x, y, r, erase, hard) {
+  if (erase) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(hard, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.save(); ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  } else {
+    const d = Math.ceil(r * 2) + 2, ox = Math.round(x - d / 2), oy = Math.round(y - d / 2);
+    scratch.width = d; scratch.height = d;
+    const s = scratch.getContext('2d');
+    s.drawImage(restoreSrc, ox, oy, d, d, 0, 0, d, d);
+    const g = s.createRadialGradient(d / 2, d / 2, 0, d / 2, d / 2, r);
+    g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(hard, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    s.globalCompositeOperation = 'destination-in';
+    s.fillStyle = g; s.fillRect(0, 0, d, d);
+    ctx.drawImage(scratch, ox, oy);
+  }
+}
+function brushPoint(e) {
+  const rc = $('#view').getBoundingClientRect();
+  return { x: (e.clientX - rc.left) * cur.width / rc.width, y: (e.clientY - rc.top) * cur.height / rc.height, k: cur.width / rc.width };
+}
+function placeRing(e) {
+  const size = +$('#bsize').value, ring = $('#ring');
+  ring.style.width = ring.style.height = size + 'px';
+  ring.style.left = (e.clientX - size / 2) + 'px';
+  ring.style.top = (e.clientY - size / 2) + 'px';
+  ring.style.display = 'block';
+}
+function paintSegment(from, to) {
+  const ctx = cur.getContext('2d');
+  const r = Math.max(0.5, +$('#bsize').value / 2 * stroke.k);
+  const hard = clamp(1 - (+$('#bsoft').value) / 100, 0, 0.98);
+  const erase = brushKind() === 'erase';
+  const dx = to.x - from.x, dy = to.y - from.y, dist = Math.hypot(dx, dy);
+  const step = Math.max(1, r * 0.25), n = Math.max(1, Math.ceil(dist / step));
+  for (let i = 1; i <= n; i++) stamp(ctx, from.x + dx * i / n, from.y + dy * i / n, r, erase, hard);
+  // redraw only the touched region on screen
+  const x0 = clamp(Math.floor(Math.min(from.x, to.x) - r - 2), 0, cur.width), y0 = clamp(Math.floor(Math.min(from.y, to.y) - r - 2), 0, cur.height);
+  const x1 = clamp(Math.ceil(Math.max(from.x, to.x) + r + 2), 0, cur.width), y1 = clamp(Math.ceil(Math.max(from.y, to.y) + r + 2), 0, cur.height);
+  const vctx = $('#view').getContext('2d');
+  vctx.clearRect(x0, y0, x1 - x0, y1 - y0);
+  vctx.drawImage(cur, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+}
+const viewEl = $('#view');
+viewEl.addEventListener('pointerdown', e => {
+  if (!brushOn || brushMode() !== 'paint' || !cur || tab !== 'bg') return;
+  if (brushKind() === 'restore' && (!restoreSrc || restoreSrc.width !== cur.width || restoreSrc.height !== cur.height)) {
+    toast('Nothing to restore here.'); return;
+  }
+  e.preventDefault();
+  viewEl.setPointerCapture(e.pointerId);
+  const p = brushPoint(e);
+  stroke = { k: p.k, before: cloneCanvas(cur), last: p, moved: false };
+  placeRing(e);
+  paintSegment(p, p);
+});
+viewEl.addEventListener('pointermove', e => {
+  if (brushOn && brushMode() === 'paint' && (e.pointerType === 'mouse' || stroke)) placeRing(e);
+  if (!stroke) return;
+  e.preventDefault();
+  const p = brushPoint(e);
+  paintSegment(stroke.last, p);
+  stroke.last = p; stroke.moved = true;
+});
+function endStroke() {
+  if (!stroke) return;
+  const s = stroke; stroke = null;
+  $('#ring').style.display = 'none';
+  pushHistory(s.before);
+  render();
+}
+['pointerup', 'pointercancel'].forEach(ev => viewEl.addEventListener(ev, endStroke));
+viewEl.addEventListener('pointerleave', e => { if (!stroke) $('#ring').style.display = 'none'; });
 
 /* ---------- crop ---------- */
 const cbox = $('#cbox');
@@ -581,7 +721,9 @@ $('#btnCrop').addEventListener('click', () => {
   if (w === cur.width && h === cur.height) { toast('Select an area first.'); return; }
   const c = makeCanvas(w, h);
   c.getContext('2d').drawImage(cur, x, y, w, h, 0, 0, w, h);
-  commit(c);
+  const rc = makeCanvas(w, h);
+  rc.getContext('2d').drawImage(restoreSrc, x, y, w, h, 0, 0, w, h);
+  commit(c, rc);
   toast('Cropped to ' + w + ' × ' + h + ' px.');
 });
 
@@ -659,8 +801,9 @@ $('#btnResize').addEventListener('click', () => {
   const amt = +$('#sharp').value;
   run('Resizing…', async () => {
     let c = resizeTo(cur, nw, nh);
+    const rc = resizeTo(restoreSrc, nw, nh);
     if (amt > 0) { await tick(); setBusy('Sharpening…'); await tick(); c = sharpen(c, amt); }
-    commit(c);
+    commit(c, rc);
     toast('Now ' + nw + ' × ' + nh + ' px.');
   });
 });

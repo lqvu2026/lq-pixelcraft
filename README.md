@@ -3,6 +3,7 @@
 One browser app to prepare an image from start to finish:
 
 - **Remove BG**: automatic AI cut-out, or a color eraser (tap the background; tolerance, soft edge, connected-only)
+- **Touch-up brush**: erase or restore by hand (size, softness), with 2×–4× zoom and a Move mode for scrolling
 - **Crop**: drag handles, with Free, 1:1, 4:3, 3:4, 16:9, 9:16
 - **Resize / upscale**: ½× to 4× or exact width and height, with optional sharpening
 - **Save**: PNG (keeps transparency) or JPEG (quality + fill color), Download or Share
