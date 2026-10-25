@@ -231,7 +231,7 @@ footer{max-width:760px;margin:6px auto 0;padding:0 16px;color:var(--muted);font-
 <footer>Runs in your browser. Nothing is uploaded.</footer>
 
 <input type="file" id="file" accept="image/*" hidden>
-<div id="busy"><div class="box"><div class="spin"></div><div id="busyMsg">Working…</div></div></div>
+<div id="busy"><div class="box"><div class="spin"></div><div id="busyMsg">Working…</div><button class="btn small" id="busyCancel" hidden style="margin-top:14px">Cancel</button></div></div>
 <div id="toast"></div>
 
 <script>
@@ -266,9 +266,9 @@ function toast(msg, ms = 2800) {
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), ms);
 }
-function busy(msg) { $('#busyMsg').textContent = msg || 'Working…'; $('#busy').classList.add('on'); }
+function busy(msg, cancelable) { $('#busyMsg').textContent = msg || 'Working…'; $('#busyCancel').hidden = !cancelable; $('#busy').classList.add('on'); }
 function setBusy(msg) { $('#busyMsg').textContent = msg; }
-function unbusy() { $('#busy').classList.remove('on'); }
+function unbusy() { $('#busy').classList.remove('on'); $('#busyCancel').hidden = true; }
 async function run(msg, fn) {
   busy(msg); await tick();
   try { return await fn(); }
@@ -387,14 +387,29 @@ window.addEventListener('resize', fitView);
 window.addEventListener('orientationchange', () => setTimeout(fitView, 200));
 
 /* ---------- remove background: AI ---------- */
-let bgLib = null;
+let bgLib = null, aiCancel = null;
+const MODEL_BASE = 'https://staticimgly.com/@imgly/background-removal-data/1.5.5/dist/';
+$('#busyCancel').addEventListener('click', () => { if (aiCancel) aiCancel('cancelled'); });
 $('#btnAI').addEventListener('click', async () => {
   if (!cur) return;
-  busy('Loading background remover…');
+  let lastTick = Date.now(), stallTimer;
+  const cancelP = new Promise((_, rej) => { aiCancel = reason => rej(new Error(reason)); });
+  cancelP.catch(() => {});
+  const bump = () => { lastTick = Date.now(); };
+  busy('Contacting model server…', true);
+  stallTimer = setInterval(() => { if (Date.now() - lastTick > 90000 && aiCancel) aiCancel('stalled'); }, 3000);
   try {
+    // quick reachability check so a blocked connection fails fast with a clear message
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 15000);
+    try { await fetch(MODEL_BASE + 'resources.json', { signal: ctl.signal, cache: 'no-store' }); }
+    catch (e) { throw new Error('unreachable'); }
+    finally { clearTimeout(to); }
+    bump();
+    setBusy('Loading background remover…');
     if (!bgLib) {
-      bgLib = await import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm');
+      bgLib = await Promise.race([import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm'), cancelP]);
     }
+    bump();
     let src = cur;
     const big = Math.max(cur.width, cur.height);
     if (big > MAX_AI) {
@@ -404,13 +419,17 @@ $('#btnAI').addEventListener('click', async () => {
     }
     const blob = await toBlob(src, 'image/png');
     setBusy('Preparing…');
-    const out = await bgLib.removeBackground(blob, {
+    const out = await Promise.race([bgLib.removeBackground(blob, {
+      publicPath: MODEL_BASE,
+      model: 'isnet_quint8',   // smaller download (about 44 MB)
       output: { format: 'image/png' },
       progress: (key, c, t) => {
-        if (String(key).startsWith('fetch') && t) setBusy('Downloading model… ' + Math.round(c / t * 100) + '%');
-        else setBusy('Removing background…');
+        bump();
+        if (String(key).startsWith('fetch')) {
+          setBusy('Downloading model… ' + (t ? (c / 1048576).toFixed(1) + ' of ' + (t / 1048576).toFixed(1) + ' MB' : 'starting'));
+        } else setBusy('Removing background…');
       }
-    });
+    }), cancelP]);
     const bmp = await createImageBitmap(out);
     const c = makeCanvas(bmp.width, bmp.height);
     c.getContext('2d').drawImage(bmp, 0, 0);
@@ -419,8 +438,12 @@ $('#btnAI').addEventListener('click', async () => {
     toast('Background removed. Use the preview colors to check the edges.');
   } catch (e) {
     console.error(e);
-    toast('Automatic removal needs an internet connection the first time. Try again, or use the color eraser.', 5500);
-  } finally { unbusy(); }
+    const m = e && e.message;
+    if (m === 'cancelled') toast('Cancelled.');
+    else if (m === 'unreachable') toast('Cannot reach the model server (staticimgly.com). Check your connection, try Wi-Fi, or turn off content blockers for this page.', 7000);
+    else if (m === 'stalled') toast('The model download stalled. Try again on a stronger connection.', 6000);
+    else toast('Background removal failed: ' + (m || 'unknown error'), 6000);
+  } finally { clearInterval(stallTimer); aiCancel = null; unbusy(); }
 });
 
 /* ---------- remove background: color eraser ---------- */
